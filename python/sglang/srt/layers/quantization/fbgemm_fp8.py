@@ -151,25 +151,32 @@ class FBGEMMFp8LinearMethod(LinearMethodBase):
         layer.weight = Parameter(layer.weight.data, requires_grad=False)
         layer.weight_scale = Parameter(layer.weight_scale.data, requires_grad=False)
 
-        weight = layer.weight
-        weight_scale = layer.weight_scale
-
         if _is_fp8_fnuz:
-            weight, weight_scale, _ = normalize_e4m3fn_to_e4m3fnuz(
-                weight=weight, weight_scale=weight_scale, input_scale=None
+            # For the e4m3fnuz FP8 format, both the weight and activation scales
+            # must be doubled to maintain numerical equivalence with e4m3fn.
+
+            # 1. Normalize the weight tensor itself for the fnuz format
+            #    and get the correctly doubled weight_scale.
+            new_weight, new_weight_scale = normalize_e4m3fn_to_e4m3fnuz(
+                weight=layer.weight.data,
+                weight_scale=layer.weight_scale.data,
             )
-            layer.weight_scale = Parameter(weight_scale, requires_grad=False)
-            layer.weight = Parameter(weight, requires_grad=False)
+            layer.weight = Parameter(new_weight, requires_grad=False)
+            layer.weight_scale = Parameter(new_weight_scale, requires_grad=False)
+
+            # 2. Explicitly double the activation's upper-bound scale.
+            #    This is done in-place for safety.
+            if hasattr(layer, "input_scale_ub"):
+                layer.input_scale_ub.data.mul_(2.0)
 
         if self.quant_config.use_marlin:
             # Marlin expects the original, non-transposed weight shape.
-            # It handles its own internal packing and transposition.
             prepare_fp8_layer_for_marlin(layer, size_k_first=False)
             if hasattr(layer, "input_scale_ub"):
                 del layer.input_scale_ub
         else:
-            # For the default path (non-Marlin), we transpose the weight.
-            layer.weight = Parameter(layer.weight.t(), requires_grad=False)
+            # For the default (non-Marlin) path, transpose the weight.
+            layer.weight = Parameter(layer.weight.data.t(), requires_grad=False)
 
     def apply(
         self,
@@ -177,6 +184,8 @@ class FBGEMMFp8LinearMethod(LinearMethodBase):
         x: torch.Tensor,
         bias: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
+        # print(f"\n--- DEBUG: fbgemm_fp8.py | FBGEMMFp8LinearMethod.apply ---")
+        # print(f"Input 'x': shape={x.shape}, dtype={x.dtype}, has_nan={torch.isnan(x).any()}, has_inf={torch.isinf(x).any()}")
         if self.quant_config.use_marlin:
             # The low-level Marlin kernel requires the weight_scale tensor
             # to be 2D (rank 2), which is its original shape [N, 1].
@@ -195,7 +204,7 @@ class FBGEMMFp8LinearMethod(LinearMethodBase):
         return apply_fp8_linear(
             input=x,
             weight=layer.weight,
-            weight_scale=layer.weight_scale.view(-1),
+            weight_scale=layer.weight_scale,
             input_scale=None,
             input_scale_ub=layer.input_scale_ub,
             bias=bias,
