@@ -185,6 +185,8 @@ class FBGEMMFp8LinearMethod(LinearMethodBase):
             # Activations are not quantized for Marlin.
             if hasattr(layer, "input_scale_ub"):
                 del layer.input_scale_ub
+        else:
+            layer.weight = Parameter(layer.weight.t(), requires_grad=False)
 
     def apply(
         self,
@@ -197,7 +199,7 @@ class FBGEMMFp8LinearMethod(LinearMethodBase):
             return apply_fp8_marlin_linear(
                 input=x,
                 weight=layer.weight,
-                weight_scale=layer.weight_scale,
+                weight_scale=layer.weight_scale.view(-1),
                 workspace=layer.workspace,
                 size_n=layer.output_size_per_partition,
                 size_k=layer.input_size_per_partition,
@@ -207,10 +209,10 @@ class FBGEMMFp8LinearMethod(LinearMethodBase):
         return apply_fp8_linear(
             input=x,
             weight=layer.weight,
-            weight_scale=layer.weight_scale,
+            weight_scale=layer.weight_scale.view(-1),
             input_scale=None,
             input_scale_ub=layer.input_scale_ub,
             bias=bias,
             cutlass_fp8_supported=_cutlass_fp8_supported,
-            use_per_token_if_dynamic=True,
+            use_per_token_if_dynamic=False,
         )

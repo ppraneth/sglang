@@ -750,6 +750,7 @@ class ServerArgs:
             choices=[
                 "awq",
                 "fp8",
+                "fbgemm_fp8",
                 "gptq",
                 "marlin",
                 "gptq_marlin",
