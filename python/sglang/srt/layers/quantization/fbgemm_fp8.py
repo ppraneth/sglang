@@ -60,13 +60,9 @@ class FBGEMMFp8Config(QuantizationConfig):
         super().__init__()
         self.ignore_list = ignore_list if ignore_list else []
         self.input_scale_ub = input_scale_ub
-
-        # For GPUs that lack FP8 hardware support, we can leverage the Marlin
-        # kernel for fast weight-only FP8 quantization.
         self.use_marlin = (
             get_bool_env_var("SGLANG_FORCE_FP8_MARLIN") and MARLIN_FP8_AVAILABLE
         )
-        # Disable marlin for ROCm
         if _is_hip:
             self.use_marlin = False
 
@@ -88,7 +84,7 @@ class FBGEMMFp8Config(QuantizationConfig):
 
     @classmethod
     def from_config(cls, config: Dict[str, Any]) -> "FBGEMMFp8Config":
-        ignore_list = cls.get_from_keys(config, ["modules_to_not_convert"])
+        ignore_list = cls.get_from_keys_or(config, ["modules_to_not_convert"], [])
         input_scale_ub = cls.get_from_keys(config, ["activation_scale_ub"])
         return cls(ignore_list=ignore_list, input_scale_ub=input_scale_ub)
 
@@ -106,12 +102,6 @@ class FBGEMMFp8Config(QuantizationConfig):
 
 
 class FBGEMMFp8LinearMethod(LinearMethodBase):
-    """
-    Linear method for FBGEMM-style FP8 quantization.
-    This method uses per-channel static weight quantization and per-token
-    dynamic activation quantization with an upper-bound scaling factor.
-    """
-
     def __init__(self, quant_config: FBGEMMFp8Config):
         self.quant_config = quant_config
         self.out_dtype = torch.get_default_dtype()
@@ -129,13 +119,10 @@ class FBGEMMFp8LinearMethod(LinearMethodBase):
         weight_loader = extra_weight_attrs.get("weight_loader")
         del input_size, output_size
         output_size_per_partition = sum(output_partition_sizes)
-
         layer.logical_widths = output_partition_sizes
         layer.input_size_per_partition = input_size_per_partition
         layer.output_size_per_partition = output_size_per_partition
         layer.orig_dtype = params_dtype
-
-        # WEIGHT
         weight = ModelWeightParameter(
             data=torch.empty(
                 output_size_per_partition,
@@ -147,8 +134,6 @@ class FBGEMMFp8LinearMethod(LinearMethodBase):
             weight_loader=weight_loader,
         )
         layer.register_parameter("weight", weight)
-
-        # WEIGHT SCALE
         weight_scale = ChannelQuantScaleParameter(
             data=torch.empty((sum(output_partition_sizes), 1), dtype=torch.float32),
             output_dim=0,
@@ -156,8 +141,6 @@ class FBGEMMFp8LinearMethod(LinearMethodBase):
         )
         weight_scale.data.fill_(torch.finfo(torch.float32).min)
         layer.register_parameter("weight_scale", weight_scale)
-
-        # INPUT SCALE UPPER BOUND
         input_scale_ub = torch.nn.Parameter(
             torch.tensor(self.quant_config.input_scale_ub, dtype=torch.float32),
             requires_grad=False,
@@ -165,7 +148,6 @@ class FBGEMMFp8LinearMethod(LinearMethodBase):
         layer.input_scale_ub = input_scale_ub
 
     def process_weights_after_loading(self, layer: Module) -> None:
-        # Required by torch.compile
         layer.weight = Parameter(layer.weight.data, requires_grad=False)
         layer.weight_scale = Parameter(layer.weight_scale.data, requires_grad=False)
 
@@ -177,15 +159,16 @@ class FBGEMMFp8LinearMethod(LinearMethodBase):
                 weight=weight, weight_scale=weight_scale, input_scale=None
             )
             layer.weight_scale = Parameter(weight_scale, requires_grad=False)
-
-        layer.weight = Parameter(weight.t(), requires_grad=False)
+            layer.weight = Parameter(weight, requires_grad=False)
 
         if self.quant_config.use_marlin:
+            # Marlin expects the original, non-transposed weight shape.
+            # It handles its own internal packing and transposition.
             prepare_fp8_layer_for_marlin(layer, size_k_first=False)
-            # Activations are not quantized for Marlin.
             if hasattr(layer, "input_scale_ub"):
                 del layer.input_scale_ub
         else:
+            # For the default path (non-Marlin), we transpose the weight.
             layer.weight = Parameter(layer.weight.t(), requires_grad=False)
 
     def apply(
@@ -194,18 +177,21 @@ class FBGEMMFp8LinearMethod(LinearMethodBase):
         x: torch.Tensor,
         bias: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-
         if self.quant_config.use_marlin:
+            # The low-level Marlin kernel requires the weight_scale tensor
+            # to be 2D (rank 2), which is its original shape [N, 1].
             return apply_fp8_marlin_linear(
                 input=x,
                 weight=layer.weight,
-                weight_scale=layer.weight_scale.view(-1),
+                weight_scale=layer.weight_scale,
                 workspace=layer.workspace,
                 size_n=layer.output_size_per_partition,
                 size_k=layer.input_size_per_partition,
                 bias=bias,
             )
 
+        # The default kernel path might be more flexible. We flatten the
+        # scale tensor to a 1D vector just in case.
         return apply_fp8_linear(
             input=x,
             weight=layer.weight,
