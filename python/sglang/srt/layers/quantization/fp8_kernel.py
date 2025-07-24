@@ -431,9 +431,6 @@ def static_quant_fp8(
     assert x_s.numel() == 1, "only supports per-tensor scale"
 
     x_q = torch.empty_like(x, device=x.device, dtype=fp8_dtype)
-    # print(f"DEBUG (fp8_kernel.py): Inside static_quant_fp8")
-    # print(f"DEBUG: scale shape: {scale.shape}")
-    # print(f"DEBUG: repeat_scale: {repeat_scale}")
     M = x.numel() // x.shape[-1]
     N = x.shape[-1]
     if repeat_scale:
