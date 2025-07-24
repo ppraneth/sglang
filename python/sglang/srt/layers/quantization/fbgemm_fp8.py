@@ -1,8 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: Copyright contributors to the vLLM project.
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 # Adapted from https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/quantization/fbgemm_fp8.py
 
-import logging
 from typing import Any, Dict, List, Optional
 
 import torch
@@ -16,55 +15,19 @@ from sglang.srt.layers.quantization.base_config import (
     QuantizationConfig,
     QuantizeMethodBase,
 )
-from sglang.srt.layers.quantization.fp8_kernel import is_fp8_fnuz
-from sglang.srt.layers.quantization.fp8_utils import (
-    apply_fp8_linear,
-    cutlass_fp8_supported,
-    normalize_e4m3fn_to_e4m3fnuz,
-)
+from sglang.srt.layers.quantization.fp8_kernel import fp8_dtype, fp8_max, is_fp8_fnuz
+from sglang.srt.layers.quantization.fp8_utils import normalize_e4m3fn_to_e4m3fnuz
 from sglang.srt.layers.quantization.unquant import UnquantizedLinearMethod
 from sglang.srt.layers.quantization.utils import is_layer_skipped
-from sglang.srt.utils import get_bool_env_var, is_hip
-
-try:
-    from vllm.model_executor.layers.quantization.utils.marlin_utils_fp8 import (  # type: ignore
-        apply_fp8_marlin_linear,
-        prepare_fp8_layer_for_marlin,
-    )
-
-    MARLIN_FP8_AVAILABLE = True
-except ImportError:
-    MARLIN_FP8_AVAILABLE = False
-
-    def dummy_func(*args, **kwargs):
-        raise ImportError(
-            "Marlin FP8 requires some operators from vLLM. Please install vLLm."
-        )
-
-    apply_fp8_marlin_linear = prepare_fp8_layer_for_marlin = dummy_func
-
-
-logger = logging.getLogger(__name__)
-
-_is_hip = is_hip()
-_is_fp8_fnuz = is_fp8_fnuz()
-_cutlass_fp8_supported = cutlass_fp8_supported()
 
 
 class FBGEMMFp8Config(QuantizationConfig):
-    """Config class for FBGEMM Fp8."""
+    """Configuration class for FBGEMM FP8 quantization in SGLang."""
 
-    def __init__(
-        self, ignore_list: Optional[list[str]] = None, input_scale_ub: float = 1.0
-    ):
+    def __init__(self, ignore_list: List[str], input_scale_ub: float):
         super().__init__()
         self.ignore_list = ignore_list if ignore_list else []
         self.input_scale_ub = input_scale_ub
-        self.use_marlin = (
-            get_bool_env_var("SGLANG_FORCE_FP8_MARLIN") and MARLIN_FP8_AVAILABLE
-        )
-        if _is_hip:
-            self.use_marlin = False
 
     @classmethod
     def get_name(cls) -> str:
@@ -76,14 +39,19 @@ class FBGEMMFp8Config(QuantizationConfig):
 
     @classmethod
     def get_min_capability(cls) -> int:
-        return 80
+        # The fallback implementation does not require special capability.
+        return 0
 
-    @classmethod
-    def get_config_filenames(cls) -> List[str]:
+    @staticmethod
+    def get_config_filenames() -> List[str]:
+        return []
+
+    def get_scaled_act_names(self) -> List[str]:
         return []
 
     @classmethod
     def from_config(cls, config: Dict[str, Any]) -> "FBGEMMFp8Config":
+        """Creates a config from the model's quantization_config dictionary."""
         ignore_list = cls.get_from_keys_or(config, ["modules_to_not_convert"], [])
         input_scale_ub = cls.get_from_keys(config, ["activation_scale_ub"])
         return cls(ignore_list=ignore_list, input_scale_ub=input_scale_ub)
@@ -97,32 +65,34 @@ class FBGEMMFp8Config(QuantizationConfig):
             return FBGEMMFp8LinearMethod(self)
         return None
 
-    def get_scaled_act_names(self) -> List[str]:
-        return []
-
 
 class FBGEMMFp8LinearMethod(LinearMethodBase):
+    """
+    Quantization method for FBGEMM FP8 linear layers.
+    """
+
     def __init__(self, quant_config: FBGEMMFp8Config):
         self.quant_config = quant_config
-        self.out_dtype = torch.get_default_dtype()
 
     def create_weights(
         self,
         layer: torch.nn.Module,
         input_size_per_partition: int,
-        output_partition_sizes: list[int],
+        output_partition_sizes: List[int],
         input_size: int,
         output_size: int,
         params_dtype: torch.dtype,
         **extra_weight_attrs,
     ):
-        weight_loader = extra_weight_attrs.get("weight_loader")
         del input_size, output_size
         output_size_per_partition = sum(output_partition_sizes)
-        layer.logical_widths = output_partition_sizes
+        weight_loader = extra_weight_attrs.get("weight_loader")
+
         layer.input_size_per_partition = input_size_per_partition
         layer.output_size_per_partition = output_size_per_partition
         layer.orig_dtype = params_dtype
+        layer.logical_widths = output_partition_sizes
+
         weight = ModelWeightParameter(
             data=torch.empty(
                 output_size_per_partition,
@@ -134,49 +104,32 @@ class FBGEMMFp8LinearMethod(LinearMethodBase):
             weight_loader=weight_loader,
         )
         layer.register_parameter("weight", weight)
+
         weight_scale = ChannelQuantScaleParameter(
-            data=torch.empty((sum(output_partition_sizes), 1), dtype=torch.float32),
+            data=torch.empty((output_size_per_partition, 1), dtype=torch.float32),
             output_dim=0,
             weight_loader=weight_loader,
         )
-        weight_scale.data.fill_(torch.finfo(torch.float32).min)
         layer.register_parameter("weight_scale", weight_scale)
+
         input_scale_ub = torch.nn.Parameter(
             torch.tensor(self.quant_config.input_scale_ub, dtype=torch.float32),
             requires_grad=False,
         )
-        layer.input_scale_ub = input_scale_ub
+        layer.register_parameter("input_scale_ub", input_scale_ub)
 
     def process_weights_after_loading(self, layer: Module) -> None:
         layer.weight = Parameter(layer.weight.data, requires_grad=False)
         layer.weight_scale = Parameter(layer.weight_scale.data, requires_grad=False)
 
-        if _is_fp8_fnuz:
-            # For the e4m3fnuz FP8 format, both the weight and activation scales
-            # must be doubled to maintain numerical equivalence with e4m3fn.
-
-            # 1. Normalize the weight tensor itself for the fnuz format
-            #    and get the correctly doubled weight_scale.
-            new_weight, new_weight_scale = normalize_e4m3fn_to_e4m3fnuz(
-                weight=layer.weight.data,
-                weight_scale=layer.weight_scale.data,
+        if is_fp8_fnuz():
+            weight, weight_scale, _ = normalize_e4m3fn_to_e4m3fnuz(
+                weight=layer.weight, weight_scale=layer.weight_scale, input_scale=None
             )
-            layer.weight = Parameter(new_weight, requires_grad=False)
-            layer.weight_scale = Parameter(new_weight_scale, requires_grad=False)
+            layer.weight = Parameter(weight, requires_grad=False)
+            layer.weight_scale = Parameter(weight_scale, requires_grad=False)
 
-            # 2. Explicitly double the activation's upper-bound scale.
-            #    This is done in-place for safety.
-            if hasattr(layer, "input_scale_ub"):
-                layer.input_scale_ub.data.mul_(2.0)
-
-        if self.quant_config.use_marlin:
-            # Marlin expects the original, non-transposed weight shape.
-            prepare_fp8_layer_for_marlin(layer, size_k_first=False)
-            if hasattr(layer, "input_scale_ub"):
-                del layer.input_scale_ub
-        else:
-            # For the default (non-Marlin) path, transpose the weight.
-            layer.weight = Parameter(layer.weight.data.t(), requires_grad=False)
+        layer.weight = Parameter(layer.weight.t(), requires_grad=False)
 
     def apply(
         self,
@@ -184,30 +137,37 @@ class FBGEMMFp8LinearMethod(LinearMethodBase):
         x: torch.Tensor,
         bias: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        # print(f"\n--- DEBUG: fbgemm_fp8.py | FBGEMMFp8LinearMethod.apply ---")
-        # print(f"Input 'x': shape={x.shape}, dtype={x.dtype}, has_nan={torch.isnan(x).any()}, has_inf={torch.isinf(x).any()}")
-        if self.quant_config.use_marlin:
-            # The low-level Marlin kernel requires the weight_scale tensor
-            # to be 2D (rank 2), which is its original shape [N, 1].
-            return apply_fp8_marlin_linear(
-                input=x,
-                weight=layer.weight,
-                weight_scale=layer.weight_scale,
-                workspace=layer.workspace,
-                size_n=layer.output_size_per_partition,
-                size_k=layer.input_size_per_partition,
-                bias=bias,
-            )
+        output_shape = [*x.shape[:-1], layer.output_size_per_partition]
+        input_2d = x.view(-1, layer.input_size_per_partition)
 
-        # The default kernel path might be more flexible. We flatten the
-        # scale tensor to a 1D vector just in case.
-        return apply_fp8_linear(
-            input=x,
-            weight=layer.weight,
-            weight_scale=layer.weight_scale,
-            input_scale=None,
-            input_scale_ub=layer.input_scale_ub,
-            bias=bias,
-            cutlass_fp8_supported=_cutlass_fp8_supported,
-            use_per_token_if_dynamic=False,
-        )
+        # 1. Dynamically quantize activation.
+        # Upcast to float32 for all scaling calculations to maximize precision.
+        x_f32 = input_2d.to(torch.float32)
+        x_amax = x_f32.abs().max(dim=-1, keepdim=True)[0]
+        x_amax.clamp_(min=1e-12)
+
+        x_scale = x_amax / fp8_max
+        x_scale = torch.minimum(x_scale, layer.input_scale_ub)
+
+        # Quantize the float32 tensor before casting to fp8.
+        x_q = (x_f32 / x_scale).to(fp8_dtype)
+
+        # 2. Perform scaled matrix multiplication using the reliable PyTorch fallback.
+        device_identity = torch.ones(1, dtype=torch.float32, device=layer.weight.device)
+        output_q = torch._scaled_mm(
+            x_q,
+            layer.weight,
+            scale_a=device_identity,
+            scale_b=device_identity,
+            out_dtype=torch.float32,
+        )[0]
+
+        # 3. Dequantize the output.
+        output = output_q * x_scale * layer.weight_scale.t()
+
+        if bias is not None:
+            output = output + bias
+
+        output = output.to(x.dtype)
+
+        return output.view(*output_shape)
