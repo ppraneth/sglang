@@ -66,9 +66,9 @@ class MambaCache:
     def prepare_mamba_inputs(self, batch: ModelWorkerBatch) -> MambaCacheParams:
         """
         Prepare the MambaCacheParams for the current forward pass.
-        This involves gathering the states for the sequences in the current batch.
+        The custom kernels are designed to take the slot mapping (cache_indices)
+        directly, so we pass the master cache tensors and the mapping.
         """
-        # req_pool_indices is the equivalent of slot_mapping or cache_indices.
         slot_mapping = batch.req_pool_indices.long()
 
         return MambaCacheParams(

@@ -11,7 +11,6 @@ from torch import nn
 from transformers import MambaConfig
 
 from sglang.srt.layers.layernorm import RMSNorm
-from sglang.srt.layers.linear import MergedColumnParallelLinear, RowParallelLinear
 from sglang.srt.layers.logits_processor import LogitsProcessor, LogitsProcessorOutput
 from sglang.srt.layers.mamba.mamba_mixer import MambaMixer
 from sglang.srt.layers.quantization.base_config import QuantizationConfig
@@ -34,8 +33,7 @@ class MambaDecoderLayer(nn.Module):
         tp_group=None,
     ) -> None:
         super().__init__()
-        self.config = config
-        self.mixer = MambaMixer(config, tp_group=tp_group)
+        self.mixer = MambaMixer(config=config, tp_group=tp_group)
         self.norm = RMSNorm(config.hidden_size, eps=config.layer_norm_epsilon)
 
     def forward(
@@ -65,26 +63,21 @@ class MambaModel(nn.Module):
     ) -> None:
         super().__init__()
         self.config = config
-        self.tp_group = tp_group
-
         self.embed_tokens = VocabParallelEmbedding(
             config.vocab_size,
             config.hidden_size,
             quant_config=quant_config,
-            prefix=add_prefix("embed_tokens", prefix),
+            prefix=add_prefix("embeddings", prefix),
         )
-
         self.layers, self.start_layer, self.end_layer = make_layers(
             config.num_hidden_layers,
             lambda idx, p: MambaDecoderLayer(
                 config=config, quant_config=quant_config, prefix=p, tp_group=tp_group
             ),
             prefix=add_prefix("layers", prefix),
-            # SGLang does not yet support PP for Mamba, so we run all layers
             pp_rank=0,
             pp_size=1,
         )
-
         self.norm_f = RMSNorm(config.hidden_size, eps=config.layer_norm_epsilon)
 
     def forward(
@@ -104,7 +97,6 @@ class MambaModel(nn.Module):
 
         for i in range(self.config.num_hidden_layers):
             layer = self.layers[i]
-            # Get the cache for the specific layer
             layer_cache_params = mamba_cache_params.get_layer(i)
             hidden_states, residual = layer(
                 hidden_states=hidden_states,
@@ -128,7 +120,6 @@ class MambaForCausalLM(nn.Module):
         super().__init__()
         self.config = config
         self.quant_config = quant_config
-        self.tp_group = tp_group
 
         self.model = MambaModel(
             config,
@@ -144,9 +135,8 @@ class MambaForCausalLM(nn.Module):
                 config.vocab_size,
                 config.hidden_size,
                 quant_config=quant_config,
-                prefix=add_prefix("lm_head", prefix),
+                prefix="lm_head",
             )
-
         self.logits_processor = LogitsProcessor(config)
 
     def forward(
@@ -171,17 +161,29 @@ class MambaForCausalLM(nn.Module):
     def load_weights(self, weights: Iterable[Tuple[str, torch.Tensor]]):
         params_dict = dict(self.named_parameters())
         for name, loaded_weight in weights:
-            if "A_log" in name:
-                # The original checkpoint stores A_log, but our parameter is named A
-                name = name.replace("A_log", "A")
+            # SGLang's `make_layers` adds a prefix, so we adjust the name
+            name = name.replace("backbone.layers", "model.layers")
 
-            # The conv1d weight is of shape (dim, 1, width) in checkpoints,
-            # but our nn.Conv1d expects (dim, 1, width). We handle this during loading.
-            if "conv1d.weight" in name and loaded_weight.dim() == 2:
+            # The original checkpoint stores A_log, but our parameter is named A_log
+            if "A_log" in name:
+                name = name.replace(
+                    "A_log", "A_log"
+                )  # This seems redundant, but ensures mapping
+
+            # The vLLM MambaMixer uses a ColumnParallelLinear for conv1d, which expects a 2D weight.
+            # Our nn.Conv1d expects a 3D weight. We handle this mismatch here.
+            if "mixer.conv1d.weight" in name and loaded_weight.dim() == 2:
                 loaded_weight = loaded_weight.unsqueeze(1)
 
             if name not in params_dict:
-                continue
+                # Fallback for models that might not use the "backbone" prefix
+                if (
+                    name.startswith("backbone.")
+                    and name.replace("backbone.", "") in params_dict
+                ):
+                    name = name.replace("backbone.", "")
+                else:
+                    continue
 
             param = params_dict[name]
             weight_loader = getattr(param, "weight_loader", default_weight_loader)
