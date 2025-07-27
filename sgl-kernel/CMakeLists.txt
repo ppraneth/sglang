@@ -136,22 +136,16 @@ set(SGL_KERNEL_CUDA_FLAGS
     "--expt-relaxed-constexpr"
     "--expt-extended-lambda"
     "--threads=32"
-
-    # Suppress warnings
     "-Xcompiler=-Wconversion"
     "-Xcompiler=-fno-strict-aliasing"
-
-    # uncomment to debug
-    # "--ptxas-options=-v"
-    # "--ptxas-options=--verbose,--register-usage-level=10,--warn-on-local-memory-usage"
 )
 
-option(SGL_KERNEL_ENABLE_SM100A           "Enable SM100A"           OFF)
-option(SGL_KERNEL_ENABLE_SM90A            "Enable SM90A"            OFF)
-option(SGL_KERNEL_ENABLE_BF16             "Enable BF16"             ON)
-option(SGL_KERNEL_ENABLE_FP8              "Enable FP8"              ON)
-option(SGL_KERNEL_ENABLE_FP4              "Enable FP4"              OFF)
-option(SGL_KERNEL_ENABLE_FA3              "Enable FA3"              OFF)
+option(SGL_KERNEL_ENABLE_SM100A         "Enable SM100A"         OFF)
+option(SGL_KERNEL_ENABLE_SM90A          "Enable SM90A"          OFF)
+option(SGL_KERNEL_ENABLE_BF16           "Enable BF16"           ON)
+option(SGL_KERNEL_ENABLE_FP8            "Enable FP8"            ON)
+option(SGL_KERNEL_ENABLE_FP4            "Enable FP4"            OFF)
+option(SGL_KERNEL_ENABLE_FA3            "Enable FA3"            OFF)
 
 if (ENABLE_BELOW_SM90)
     list(APPEND SGL_KERNEL_CUDA_FLAGS
@@ -203,7 +197,7 @@ if ("${CUDA_VERSION}" VERSION_GREATER_EQUAL "12.8" OR SGL_KERNEL_ENABLE_FP4)
     )
 endif()
 
-string(REPLACE "-D__CUDA_NO_HALF_OPERATORS__"       "" CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS}")
+string(REPLACE "-D__CUDA_NO_HALF_OPERATORS__"      "" CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS}")
 string(REPLACE "-D__CUDA_NO_HALF_CONVERSIONS__"     "" CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS}")
 string(REPLACE "-D__CUDA_NO_BFLOAT16_CONVERSIONS__" "" CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS}")
 string(REPLACE "-D__CUDA_NO_HALF2_OPERATORS__"      "" CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS}")
@@ -252,6 +246,10 @@ set(SOURCES
     "csrc/speculative/speculative_sampling.cu"
     "csrc/grammar/apply_token_bitmask_inplace_cuda.cu"
     "csrc/kvcacheio/transfer.cu"
+
+    # ADDED FOR MAMBA
+    "csrc/mamba/selective_scan_fwd.cu"
+
     "csrc/moe/cutlass_moe/w4a8/scaled_mm_entry.cu"
     "csrc/moe/cutlass_moe/w4a8/w4a8_moe_data.cu"
     "csrc/moe/cutlass_moe/w4a8/w4a8_grouped_mm_c3x.cu"
