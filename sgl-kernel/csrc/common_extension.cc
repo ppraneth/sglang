@@ -149,13 +149,13 @@ TORCH_LIBRARY_FRAGMENT(sgl_kernel, m) {
 
   m.def(
       "cutlass_scaled_fp4_mm(Tensor! out, Tensor a, Tensor b,"
-      "                       Tensor block_scale_a, Tensor block_scale_b,"
-      "                       Tensor alpha) -> ()");
+      "                      Tensor block_scale_a, Tensor block_scale_b,"
+      "                      Tensor alpha) -> ()");
   m.impl("cutlass_scaled_fp4_mm", torch::kCUDA, &cutlass_scaled_fp4_mm);
 
   m.def(
       "scaled_fp4_quant(Tensor! output, Tensor! input,"
-      "                   Tensor! output_scale, Tensor! input_scale) -> ()");
+      "                 Tensor! output_scale, Tensor! input_scale) -> ()");
   m.impl("scaled_fp4_quant", torch::kCUDA, &scaled_fp4_quant);
 
   m.def("dsv3_fused_a_gemm(Tensor! output, Tensor mat_a, Tensor mat_b) -> ()");
@@ -315,18 +315,18 @@ TORCH_LIBRARY_FRAGMENT(sgl_kernel, m) {
    */
   m.def(
       "get_cutlass_w4a8_moe_mm_data(Tensor topk_ids, Tensor! expert_offsets, "
-      "                           Tensor! problem_sizes1, Tensor! problem_sizes2, "
-      "                           Tensor! input_permutation, "
-      "                           Tensor! output_permutation, int num_experts, "
-      "                           int n, int k) -> ()");
+      "                        Tensor! problem_sizes1, Tensor! problem_sizes2, "
+      "                        Tensor! input_permutation, "
+      "                        Tensor! output_permutation, int num_experts, "
+      "                        int n, int k) -> ()");
   m.impl("get_cutlass_w4a8_moe_mm_data", torch::kCUDA, &get_cutlass_w4a8_moe_mm_data);
 
   m.def(
       "cutlass_w4a8_moe_mm(Tensor! d, Tensor a, Tensor b, "
-      "                     Tensor a_scales, Tensor b_scales, Tensor expert_offsets, "
-      "                     Tensor problem_sizes, Tensor a_strides, "
-      "                     Tensor b_strides, Tensor d_strides, Tensor s_strides,"
-      "                     int chunk_size, int topk) -> ()");
+      "               Tensor a_scales, Tensor b_scales, Tensor expert_offsets, "
+      "               Tensor problem_sizes, Tensor a_strides, "
+      "               Tensor b_strides, Tensor d_strides, Tensor s_strides,"
+      "               int chunk_size, int topk) -> ()");
   m.impl("cutlass_w4a8_moe_mm", torch::kCUDA, &cutlass_w4a8_moe_mm);
 
   /*
