@@ -1,3 +1,5 @@
+# python/sglang/srt/configs/model_config.py
+
 # Copyright 2023-2024 SGLang Team
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -126,12 +128,18 @@ class ModelConfig:
 
         if (
             is_draft_model
+            and self.hf_config.architectures
             and self.hf_config.architectures[0] == "DeepseekV3ForCausalLM"
         ):
             self.hf_config.architectures[0] = "DeepseekV3ForCausalLMNextN"
 
-        if is_draft_model and self.hf_config.architectures[0] == "MiMoForCausalLM":
+        if (
+            is_draft_model
+            and self.hf_config.architectures
+            and self.hf_config.architectures[0] == "MiMoForCausalLM"
+        ):
             self.hf_config.architectures[0] = "MiMoMTP"
+
         # Check model type
         self.is_generation = is_generation_model(
             self.hf_config.architectures, is_embedding
@@ -178,12 +186,23 @@ class ModelConfig:
         else:
             self.context_len = derived_context_len
 
+        # ========== CORRECTED SECTION START ==========
         # Unify the config keys for hf_text_config
-        self.head_dim = getattr(
-            self.hf_text_config,
-            "head_dim",
-            self.hf_text_config.hidden_size // self.hf_text_config.num_attention_heads,
-        )
+        # Safely calculate head_dim only for models with attention
+        if (
+            hasattr(self.hf_text_config, "num_attention_heads")
+            and self.hf_text_config.num_attention_heads > 0
+        ):
+            self.head_dim = getattr(
+                self.hf_text_config,
+                "head_dim",
+                self.hf_text_config.hidden_size
+                // self.hf_text_config.num_attention_heads,
+            )
+        else:
+            # For attention-free models like Mamba, head_dim is not applicable.
+            self.head_dim = 0
+        # ========== CORRECTED SECTION END ==========
 
         # FIXME: temporary special judge for MLA architecture
         if (
@@ -197,8 +216,6 @@ class ModelConfig:
             self.qk_nope_head_dim = self.hf_config.qk_nope_head_dim
             self.qk_rope_head_dim = self.hf_config.qk_rope_head_dim
             self.v_head_dim = self.hf_config.v_head_dim
-
-            # Handle rope scaling with yarn
             self.scaling = 1 / math.sqrt(self.qk_nope_head_dim + self.qk_rope_head_dim)
             if self.hf_config.rope_scaling:
                 mscale_all_dim = self.hf_config.rope_scaling.get(
@@ -207,7 +224,6 @@ class ModelConfig:
                 scaling_factor = self.hf_config.rope_scaling["factor"]
                 mscale = yarn_get_mscale(scaling_factor, float(mscale_all_dim))
                 self.scaling = self.scaling * mscale * mscale
-
         elif "MiniCPM3ForCausalLM" in self.hf_config.architectures:
             self.head_dim = 128
             self.attention_arch = AttentionArch.MLA
@@ -237,41 +253,33 @@ class ModelConfig:
                     self.head_dim = (
                         self.hf_config.hidden_size // self.hf_config.num_attention_heads
                     )
-                    # In transformers==4.52.3, the head_dim is null in MistralConfig
                     if (
                         not hasattr(self.hf_text_config, "head_dim")
                         or self.hf_text_config.head_dim is None
                     ):
                         setattr(self.hf_text_config, "head_dim", self.head_dim)
-
             self.attention_arch = AttentionArch.MHA
 
-        self.num_attention_heads = self.hf_text_config.num_attention_heads
+        self.num_attention_heads = getattr(
+            self.hf_text_config, "num_attention_heads", 0
+        )
         self.num_key_value_heads = getattr(
             self.hf_text_config, "num_key_value_heads", None
         )
-
-        # for Dbrx and MPT models
         if self.hf_config.model_type in ["dbrx", "mpt"]:
             self.num_key_value_heads = getattr(
                 self.hf_config.attn_config, "kv_n_heads", None
             )
-
         if self.num_key_value_heads is None:
             self.num_key_value_heads = self.num_attention_heads
+
         self.hidden_size = self.hf_text_config.hidden_size
         self.num_hidden_layers = self.hf_text_config.num_hidden_layers
         self.vocab_size = self.hf_text_config.vocab_size
 
-        # Verify quantization
         self._verify_quantization()
-
-        # Cache attributes
         self.hf_eos_token_id = self.get_hf_eos_token_id()
-
         config = self.hf_config
-
-        # multimodal
         self.image_token_id = getattr(config, "image_token_id", None) or getattr(
             config, "image_token_index", None
         )
