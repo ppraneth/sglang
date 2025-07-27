@@ -83,13 +83,13 @@ FetchContent_Declare(
 )
 FetchContent_Populate(repo-flash-attention)
 # mscclpp
-FetchContent_Declare(
-    repo-mscclpp
-    GIT_REPOSITORY https://github.com/microsoft/mscclpp.git
-    GIT_TAG        51eca89d20f0cfb3764ccd764338d7b22cd486a6
-    GIT_SHALLOW    OFF
-)
-FetchContent_Populate(repo-mscclpp)
+# FetchContent_Declare(
+#     repo-mscclpp
+#     GIT_REPOSITORY https://github.com/microsoft/mscclpp.git
+#     GIT_TAG        51eca89d20f0cfb3764ccd764338d7b22cd486a6
+#     GIT_SHALLOW    OFF
+# )
+# FetchContent_Populate(repo-mscclpp)
 
 # ccache option
 option(ENABLE_CCACHE "Whether to use ccache" ON)
