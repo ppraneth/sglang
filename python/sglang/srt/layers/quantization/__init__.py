@@ -91,6 +91,7 @@ BASE_QUANTIZATION_METHODS: Dict[str, Type[QuantizationConfig]] = {
     "qoq": QoQConfig,
     "w4afp8": W4AFp8Config,
     "petit_nvfp4": PetitNvFp4Config,
+    "fbgemm_fp8": FBGEMMFp8Config,
 }
 
 

@@ -776,3 +776,91 @@ def apply_fp8_linear(
                 bias,
                 input.dtype,
             )
+
+
+class Fp8LinearOp:
+    """
+    This class executes a FP8 linear layer by wrapping SGLang's `apply_fp8_linear`
+    utility function, providing a class-based interface similar to vLLM.
+
+    It encapsulates the configuration for activation quantization and applies it
+    during the forward pass, leveraging SGLang's optimized kernels.
+    """
+
+    def __init__(
+        self,
+        # Set to True for static activation quantization, False for dynamic.
+        static_input_quant: bool,
+        # If dynamic quantization is used, set to True for per-token scales,
+        # False for a per-tensor scale. This is SGLang's equivalent of vLLM's GroupShape.
+        use_per_token_if_dynamic: bool = True,
+    ):
+        """
+        Initializes the Fp8LinearOp.
+
+        Args:
+            static_input_quant: A boolean indicating if the input activation scale is
+                                fixed (True) or calculated on-the-fly (False).
+            use_per_token_if_dynamic: A boolean that determines the granularity of
+                                      dynamic quantization. True for per-token, False
+                                      for per-tensor.
+        """
+        self.static_input_quant = static_input_quant
+        self.use_per_token_if_dynamic = use_per_token_if_dynamic
+
+        # Check for hardware support once during initialization for efficiency.
+        self.cutlass_fp8_supported = cutlass_fp8_supported()
+
+    def apply(
+        self,
+        input: torch.Tensor,
+        weight: torch.Tensor,
+        weight_scale: torch.Tensor,
+        out_dtype: Optional[torch.dtype] = None,
+        input_scale: Optional[torch.Tensor] = None,
+        input_scale_ub: Optional[torch.Tensor] = None,
+        bias: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """
+        Applies the FP8 linear operation using SGLang's backend.
+
+        Args:
+            input: The input tensor, which will be quantized if not already in FP8.
+            weight: The FP8 quantized weight tensor.
+            weight_scale: The scaling factor for the weight tensor.
+            out_dtype: The desired data type for the output tensor. Defaults to input's dtype.
+            input_scale: The scaling factor for the input tensor. Must be provided if
+                         `static_input_quant` was set to True.
+            bias: The optional bias tensor to be added to the result.
+
+        Returns:
+            The result of the linear operation.
+        """
+        if out_dtype is None:
+            out_dtype = input.dtype
+
+        # Validate that input_scale is correctly provided based on the quantization scheme.
+        if self.static_input_quant:
+            if input_scale is None:
+                raise ValueError(
+                    "An `input_scale` must be provided for static quantization."
+                )
+        else:
+            if input_scale is not None:
+                raise ValueError("`input_scale` must be None for dynamic quantization.")
+
+        # Delegate the entire operation to SGLang's optimized utility function.
+        # This function handles the input quantization, kernel selection (dispatch),
+        # and matrix multiplication.
+        output = apply_fp8_linear(
+            input=input,
+            weight=weight,
+            weight_scale=weight_scale,
+            input_scale=input_scale,
+            input_scale_ub=input_scale_ub,
+            bias=bias,
+            cutlass_fp8_supported=self.cutlass_fp8_supported,
+            use_per_token_if_dynamic=self.use_per_token_if_dynamic,
+        )
+
+        return output.to(dtype=out_dtype)
