@@ -54,6 +54,7 @@ dependencies = [
   "tiktoken",
   "torchao==0.9.0",
   "transformers==4.56.1",
+  "typer",
   "uvicorn",
   "uvloop",
   "xgrammar==0.1.24",
