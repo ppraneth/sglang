@@ -74,6 +74,69 @@ def launch(
         "layer before loading another to make the peak memory envelope "
         "smaller.",
     ),
+    model_loader_extra_config: str = typer.Option(
+        "{}",
+        "--model-loader-extra-config",
+        help="Extra config for model loader. "
+        "This will be passed to the model loader corresponding to the chosen load_format.",
+    ),
+    trust_remote_code: bool = typer.Option(
+        False,
+        "--trust-remote-code",
+        help="Whether or not to allow for custom models defined on the Hub in their own modeling files.",
+    ),
+    context_length: Optional[int] = typer.Option(
+        None,
+        "--context-length",
+        help="The model's maximum context length. Defaults to None (will use the value from the model's config.json instead).",
+    ),
+    is_embedding: bool = typer.Option(
+        False, "--is-embedding", help="Whether to use a CausalLM as an embedding model."
+    ),
+    enable_multimodal: Optional[bool] = typer.Option(
+        None,
+        "--enable-multimodal",
+        help="Enable the multimodal functionality for the served model. If the model being served is not multimodal, nothing will happen",
+    ),
+    revision: Optional[bool] = typer.Option(
+        None,
+        "--revision",
+        help="The specific model version to use. It can be a branch "
+        "name, a tag name, or a commit id. If unspecified, will use "
+        "the default version.",
+    ),
+    model_impl: str = typer.Option(
+        "auto",
+        "--model-impl",
+        help="Which implementation of the model to use.\n\n"
+        '* "auto" will try to use the SGLang implementation if it exists '
+        "and fall back to the Transformers implementation if no SGLang "
+        "implementation is available.\n"
+        '* "sglang" will use the SGLang model implementation.\n'
+        '* "transformers" will use the Transformers model '
+        "implementation.\n",
+    ),
+    # HTTP server
+    host: str = typer.Option(
+        "127.0.0.1",
+        "--host",
+        help="The host of the HTTP server.",
+    ),
+    port: int = typer.Option(30000, "--port", help="The port of the HTTP server."),
+    skip_server_warmup: bool = typer.Option(
+        False, "--skip-server-warmup", help="If set, skip warmup."
+    ),
+    warmups: Optional[str] = typer.Option(
+        None,
+        "--warmups",
+        help="Specify custom warmup functions (csv) to run before server starts eg. --warmups=warmup_name1,warmup_name2 "
+        "will run the functions `warmup_name1` and `warmup_name2` specified in warmup.py before the server starts listening for requests",
+    ),
+    nccl_port: Optional[int] = typer.Option(
+        None,
+        "--nccl-port",
+        help="The port for NCCL distributed environment setup. Defaults to a random port.",
+    ),
 ):
     cli_args = {k: v for k, v in locals().items() if v is not None}
 
