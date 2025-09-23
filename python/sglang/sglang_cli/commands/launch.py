@@ -3,7 +3,12 @@ from typing import List, Literal, Optional, Self, Union
 import pydantic
 import typer
 
-from sglang.sglang_cli.config import LoadFormat, ServerConfig, print_deprecated_warning
+from sglang.sglang_cli.config import (
+    LoadFormat,
+    QuantizationMethod,
+    ServerConfig,
+    print_deprecated_warning,
+)
 from sglang.srt.entrypoints.http_server import launch_server
 
 app = typer.Typer()
@@ -136,6 +141,59 @@ def launch(
         None,
         "--nccl-port",
         help="The port for NCCL distributed environment setup. Defaults to a random port.",
+    ),
+    # Quantization and data type
+    dtype: Literal[
+        "auto", "half", "float16", "bfloat16", "float", "float32"
+    ] = typer.Option(
+        "auto",
+        "--dtype",
+        help="Data type for model weights and activations.\n\n"
+        '* "auto" will use FP16 precision for FP32 and FP16 models, and '
+        "BF16 precision for BF16 models.\n"
+        '* "half" for FP16. Recommended for AWQ quantization.\n'
+        '* "float16" is the same as "half".\n'
+        '* "bfloat16" for a balance between precision and range.\n'
+        '* "float" is shorthand for FP32 precision.\n'
+        '* "float32" for FP32 precision.',
+    ),
+    quantization: Optional[QuantizationMethod] = typer.Option(
+        None, "--quantization", help="The quantization method."
+    ),
+    quantization_param_path: Optional[str] = typer.Option(
+        None,
+        "--quantization-param-path",
+        help="Path to the JSON file containing the KV cache "
+        "scaling factors. This should generally be supplied, when "
+        "KV cache dtype is FP8. Otherwise, KV cache scaling factors "
+        "default to 1.0, which may cause accuracy issues. ",
+    ),
+    kv_cache_dtype: Literal["auto", "fp8_e5m2", "fp8_e4m3"] = typer.Option(
+        "auto",
+        "--kv-cache-dtype",
+        help='Data type for kv cache storage. "auto" will use model data type. "fp8_e5m2" and "fp8_e4m3" is supported for CUDA 11.8+.',
+    ),
+    # Memory and scheduling
+    mem_fraction_static: Optional[float] = typer.Option(
+        None,
+        "--mem-fraction-static",
+        help="The fraction of the memory used for static allocation (model weights and KV cache memory pool). Use a smaller value if you see out-of-memory errors.",
+    ),
+    max_running_requests: Optional[int] = typer.Option(
+        None,
+        "--max-running-requests",
+        help="The maximum number of running requests.",
+    ),
+    max_queued_requests: Optional[int] = typer.Option(
+        None,
+        "--max-queued-requests",
+        help="The maximum number of queued requests. This option is ignored when using disaggregation-mode.",
+    ),
+    max_total_tokens: Optional[int] = typer.Option(
+        None,
+        "--max-total-tokens",
+        help="The maximum number of tokens in the memory pool. If not specified, it will be automatically calculated based on the memory usage fraction. "
+        "This option is typically used for development and debugging purposes.",
     ),
 ):
     cli_args = {k: v for k, v in locals().items() if v is not None}
