@@ -606,6 +606,13 @@ class SchedulerDisaggregationPrefillMixin:
         """
         Send a prefilled chunk to the decode server
         """
+        if req.enable_kv_press and hasattr(req, "compressed_kv_data"):
+            if last_chunk:
+                self.disagg_metadata_buffers.set_buf(req)
+                # Assuming compressed_kv_data contains {'k': tensor, 'v': tensor, 'token_ids': list}
+                # The sender needs to be adapted to handle this payload.
+                req.disagg_kv_sender.send_compressed(req.compressed_kv_data)
+            return
         page_size = self.token_to_kv_pool_allocator.page_size
         start_idx = req.start_send_idx
         end_idx = (

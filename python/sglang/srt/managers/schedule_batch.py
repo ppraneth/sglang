@@ -458,6 +458,9 @@ class Req:
         priority: Optional[int] = None,
         metrics_collector: Optional[SchedulerMetricsCollector] = None,
         extra_key: Optional[str] = None,
+        enable_kv_press: bool = False,
+        kv_press_compression_ratio: float = 0.5,
+        kv_press_backend: str = "ExpectedAttentionPress",
     ):
         # Input and output info
         self.rid = rid
@@ -652,6 +655,9 @@ class Req:
         # We use `tmp_end_idx` to store the end index of the kv cache to send.
         self.tmp_end_idx: int = -1
         self.metadata_buffer_index: int = -1
+        self.enable_kv_press = enable_kv_press
+        self.kv_press_compression_ratio = kv_press_compression_ratio
+        self.kv_press_backend = kv_press_backend
 
     @property
     def seqlen(self):

@@ -30,6 +30,7 @@ from urllib.parse import urlparse
 import requests
 import torch
 import torch.distributed as dist
+from kvpress import BasePress
 
 from sglang.srt.configs.device_config import DeviceConfig
 from sglang.srt.configs.load_config import LoadConfig, LoadFormat
@@ -250,6 +251,9 @@ class ModelRunner:
         self.use_mla_backend = self.model_config.attention_arch == AttentionArch.MLA
         self.attention_chunk_size = model_config.attention_chunk_size
         self.forward_pass_id = 0
+        self.attention_chunk_size = model_config.attention_chunk_size
+        self.forward_pass_id = 0
+        self.kv_press: Optional[BasePress] = None
 
         # Apply the rank zero filter to logger
         if not any(isinstance(f, RankZeroFilter) for f in logger.filters):
@@ -296,6 +300,18 @@ class ModelRunner:
         self._model_update_group = {}
         self._weights_send_group = {}
 
+    def get_kv_press_instance(self) -> BasePress:
+        if self.server_args.kv_press_backend == "ExpectedAttentionPress":
+            from kvpress import ExpectedAttentionPress
+
+            return ExpectedAttentionPress(
+                compression_ratio=self.server_args.kv_press_compression_ratio
+            )
+        else:
+            raise ValueError(
+                f"Unknown KVPress backend: {self.server_args.kv_press_backend}"
+            )
+
     def initialize(self, min_per_gpu_memory: float):
         server_args = self.server_args
 
@@ -333,6 +349,11 @@ class ModelRunner:
         # Load the model
         self.sampler = Sampler()
         self.load_model()
+        if self.server_args.enable_kv_press:
+            self.kv_press = self.get_kv_press_instance()
+            logger.info(
+                f"KVPress enabled with backend: {self.server_args.kv_press_backend}"
+            )
 
         # Check if the model is using hybrid SWA
         if (
@@ -1890,12 +1911,21 @@ class ModelRunner:
             kwargs["input_embeds"] = forward_batch.input_embeds.bfloat16()
         if not self.is_generation:
             kwargs["get_embedding"] = True
-        return self.model.forward(
-            forward_batch.input_ids,
-            forward_batch.positions,
-            forward_batch,
-            **kwargs,
-        )
+        if self.server_args.enable_kv_press and self.kv_press is not None:
+            with self.kv_press(self.model):
+                return self.model.forward(
+                    forward_batch.input_ids,
+                    forward_batch.positions,
+                    forward_batch,
+                    **kwargs,
+                )
+        else:
+            return self.model.forward(
+                forward_batch.input_ids,
+                forward_batch.positions,
+                forward_batch,
+                **kwargs,
+            )
 
     def forward_idle(
         self, forward_batch: ForwardBatch, pp_proxy_tensors=None

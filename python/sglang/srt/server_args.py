@@ -358,6 +358,11 @@ class ServerArgs:
     offload_prefetch_step: int = 1
     offload_mode: str = "cpu"
 
+    # For kvpress
+    enable_kv_press: bool = False
+    kv_press_compression_ratio: float = 0.5
+    kv_press_backend: str = "ExpectedAttentionPress"
+
     # Optimization/debug options
     disable_radix_cache: bool = False
     cuda_graph_max_bs: Optional[int] = None
@@ -2245,6 +2250,25 @@ class ServerArgs:
             type=str,
             default=ServerArgs.offload_mode,
             help="Mode of offloading.",
+        )
+
+        # KVPress
+        parser.add_argument(
+            "--enable-kv-press",
+            action="store_true",
+            help="Enable KVPress for KV cache compression.",
+        )
+        parser.add_argument(
+            "--kv-press-compression-ratio",
+            type=float,
+            default=ServerArgs.kv_press_compression_ratio,
+            help="The compression ratio for KVPress.",
+        )
+        parser.add_argument(
+            "--kv-press-backend",
+            type=str,
+            default=ServerArgs.kv_press_backend,
+            help="The backend to use for KVPress.",
         )
 
         # Optimization/debug options

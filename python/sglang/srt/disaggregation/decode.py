@@ -260,6 +260,11 @@ class DecodePreallocQueue:
 
     def _check_if_req_exceed_kv_capacity(self, req: Req) -> bool:
         if len(req.origin_input_ids) > self.max_total_num_tokens:
+            required_tokens = len(req.origin_input_ids)
+        if hasattr(req, "enable_kv_press") and req.enable_kv_press:
+            required_tokens = int(required_tokens * req.kv_press_compression_ratio)
+
+        if required_tokens > self.max_total_num_tokens:
             message = f"Request {req.rid} exceeds the maximum number of tokens: {len(req.origin_input_ids)} > {self.max_total_num_tokens}"
             logger.error(message)
             prepare_abort(req, message, status_code=HTTPStatus.BAD_REQUEST)
@@ -506,12 +511,14 @@ class DecodePreallocQueue:
 
         req.req_pool_idx = req_pool_indices[0]
 
+        num_tokens = len(req.origin_input_ids) + max(len(req.output_ids) - 1, 0)
+
+        if hasattr(req, "enable_kv_press") and req.enable_kv_press:
+            num_tokens = int(num_tokens * req.kv_press_compression_ratio)
+
         if self.token_to_kv_pool_allocator.page_size == 1:
-            kv_loc = self.token_to_kv_pool_allocator.alloc(
-                len(req.origin_input_ids) + max(len(req.output_ids) - 1, 0)
-            )
+            kv_loc = self.token_to_kv_pool_allocator.alloc(num_tokens)
         else:
-            num_tokens = len(req.origin_input_ids) + max(len(req.output_ids) - 1, 0)
             kv_loc = self.token_to_kv_pool_allocator.alloc_extend(
                 prefix_lens=torch.tensor(
                     [0],

@@ -1261,6 +1261,9 @@ class Scheduler(
                 metrics_collector=(
                     self.metrics_collector if self.enable_metrics else None
                 ),
+                enable_kv_press=self.server_args.enable_kv_press,
+                kv_press_compression_ratio=self.server_args.kv_press_compression_ratio,
+                kv_press_backend=self.server_args.kv_press_backend,
             )
             req.tokenizer = self.tokenizer
 
