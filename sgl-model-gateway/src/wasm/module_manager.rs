@@ -48,7 +48,8 @@ impl WasmModuleManager {
     }
 
     /// Register a module (for workflow steps)
-    pub(crate) fn register_module_internal(&self, module: WasmModule) -> Result<()> {
+    /// Note: This is pub(crate) to allow access from benches change it back to pub(crate) after benchmarking
+    pub fn register_module_internal(&self, module: WasmModule) -> Result<()> {
         let mut modules = self
             .modules
             .write()
