@@ -354,7 +354,7 @@ impl WasmThreadPool {
             comp.clone() // Component is just a handle (cheap clone)
         } else {
             // Compile new component
-            let comp = Component::new(engine, &wasm_bytes).map_err(|e| {
+            let comp = Component::new(engine, &*wasm_bytes).map_err(|e| {
                 WasmRuntimeError::CompileFailed(format!(
                     "failed to parse WebAssembly component: {}. \
                      Hint: The WASM file must be in component format. \
