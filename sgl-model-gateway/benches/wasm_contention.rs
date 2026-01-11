@@ -32,7 +32,7 @@ fn bench_wasm_lock_contention(c: &mut Criterion) {
         attach_points: vec![WasmModuleAttachPoint::Middleware(
             MiddlewareAttachPoint::OnRequest,
         )],
-        wasm_bytes: DUMMY_WASM.to_vec(),
+        wasm_bytes: DUMMY_WASM.to_vec().into(),
     };
 
     // Register the module once
