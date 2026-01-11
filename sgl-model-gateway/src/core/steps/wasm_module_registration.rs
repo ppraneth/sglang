@@ -459,7 +459,7 @@ impl StepExecutor for RegisterModuleStep {
                 last_accessed_at: now.into(),
                 access_count: 0.into(),
                 attach_points: config_request.descriptor.attach_points.clone(),
-                wasm_bytes: wasm_bytes.as_ref().clone(),
+                wasm_bytes: Arc::clone(&wasm_bytes),
             },
         };
 

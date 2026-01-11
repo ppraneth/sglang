@@ -58,7 +58,7 @@ pub struct WasmThreadPool {
 
 pub enum WasmTask {
     ExecuteComponent {
-        wasm_bytes: Vec<u8>,
+        wasm_bytes: Arc<Vec<u8>>,
         attach_point: WasmModuleAttachPoint,
         input: WasmComponentInput,
         response: oneshot::Sender<Result<WasmComponentOutput>>,
@@ -107,7 +107,7 @@ impl WasmRuntime {
     /// Execute WASM component using WASM interface based on attach_point
     pub async fn execute_component_async(
         &self,
-        wasm_bytes: Vec<u8>,
+        wasm_bytes: Arc<Vec<u8>>,
         attach_point: WasmModuleAttachPoint,
         input: WasmComponentInput,
     ) -> Result<WasmComponentOutput> {
@@ -281,7 +281,7 @@ impl WasmThreadPool {
 
         let cache_capacity =
             NonZeroUsize::new(config.module_cache_size).unwrap_or(NonZeroUsize::new(10).unwrap());
-        let mut component_cache: LruCache<Vec<u8>, Component> = LruCache::new(cache_capacity);
+        let mut component_cache: LruCache<Arc<Vec<u8>>, Component> = LruCache::new(cache_capacity);
 
         // Start epoch incrementer for timeout enforcement.
         // The engine's epoch counter is incremented periodically, and each Store
@@ -342,8 +342,8 @@ impl WasmThreadPool {
 
     async fn execute_component_in_worker(
         engine: &Engine,
-        cache: &mut LruCache<Vec<u8>, Component>, //  cache argument
-        wasm_bytes: Vec<u8>,
+        cache: &mut LruCache<Arc<Vec<u8>>, Component>, //  cache argument
+        wasm_bytes: Arc<Vec<u8>>,
         attach_point: WasmModuleAttachPoint,
         input: WasmComponentInput,
         config: &WasmRuntimeConfig,

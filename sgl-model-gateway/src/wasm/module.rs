@@ -182,7 +182,7 @@ impl Clone for WasmModuleMeta {
             last_accessed_at: AtomicU64::new(self.last_accessed_at.load(Ordering::Relaxed)),
             access_count: AtomicU64::new(self.access_count.load(Ordering::Relaxed)),
             attach_points: self.attach_points.clone(),
-            wasm_bytes: self.wasm_bytes.clone(),
+            wasm_bytes: Arc::clone(&self.wasm_bytes),
         }
     }
 }
