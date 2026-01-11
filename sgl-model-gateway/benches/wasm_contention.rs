@@ -27,8 +27,8 @@ fn bench_wasm_lock_contention(c: &mut Criterion) {
         size_bytes: DUMMY_WASM.len() as u64,
         created_at: 0,
         // These fields will be Atomics after the fix
-        last_accessed_at: 0,
-        access_count: 0,
+        last_accessed_at: 0.into(),
+        access_count: 0.into(),
         attach_points: vec![WasmModuleAttachPoint::Middleware(
             MiddlewareAttachPoint::OnRequest,
         )],
