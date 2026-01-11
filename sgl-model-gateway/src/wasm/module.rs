@@ -10,7 +10,10 @@
 //! - SHA256 hashes (hex string representation)
 //! - Timestamps (ISO 8601 format for JSON output)
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+};
 
 use serde::{Deserialize, Serialize, Serializer};
 use uuid::Uuid;
