@@ -10,9 +10,10 @@
 //! - SHA256 hashes (hex string representation)
 //! - Timestamps (ISO 8601 format for JSON output)
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use serde::{Deserialize, Serialize, Serializer};
 use uuid::Uuid;
-
 /// Serialize [u8; 32] as hex string
 fn serialize_sha256_hash<S>(hash: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error>
 where
@@ -129,7 +130,7 @@ pub struct WasmModuleDescriptor {
     pub add_result: Option<WasmModuleAddResult>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct WasmModuleMeta {
     // module name provided by the user
     pub name: String,
@@ -151,17 +152,60 @@ pub struct WasmModuleMeta {
     pub created_at: u64,
     // timestamp of when the module was last accessed (nanoseconds since epoch)
     #[serde(
-        serialize_with = "serialize_timestamp",
-        deserialize_with = "deserialize_timestamp"
+        serialize_with = "serialize_atomic_timestamp",
+        deserialize_with = "deserialize_atomic_timestamp"
     )]
-    pub last_accessed_at: u64,
+    pub last_accessed_at: AtomicU64,
     // number of times the module was accessed
-    pub access_count: u64,
+    #[serde(
+        serialize_with = "serialize_atomic_u64",
+        deserialize_with = "deserialize_atomic_u64"
+    )]
+    pub access_count: AtomicU64,
     // attach points for the module
     pub attach_points: Vec<WasmModuleAttachPoint>,
     // Pre-loaded WASM component bytes (loaded into memory for faster execution)
     #[serde(skip)]
     pub wasm_bytes: Vec<u8>,
+}
+impl Clone for WasmModuleMeta {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            file_path: self.file_path.clone(),
+            sha256_hash: self.sha256_hash,
+            size_bytes: self.size_bytes,
+            created_at: self.created_at,
+            last_accessed_at: AtomicU64::new(self.last_accessed_at.load(Ordering::Relaxed)),
+            access_count: AtomicU64::new(self.access_count.load(Ordering::Relaxed)),
+            attach_points: self.attach_points.clone(),
+            wasm_bytes: self.wasm_bytes.clone(),
+        }
+    }
+}
+fn serialize_atomic_u64<S>(val: &AtomicU64, s: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    s.serialize_u64(val.load(Ordering::Relaxed))
+}
+fn deserialize_atomic_u64<'de, D>(d: D) -> Result<AtomicU64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    u64::deserialize(d).map(AtomicU64::new)
+}
+fn serialize_atomic_timestamp<S>(val: &AtomicU64, s: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serialize_timestamp(&val.load(Ordering::Relaxed), s)
+}
+fn deserialize_atomic_timestamp<'de, D>(d: D) -> Result<AtomicU64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    deserialize_timestamp(d).map(AtomicU64::new)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]

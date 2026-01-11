@@ -153,30 +153,22 @@ impl WasmModuleManager {
                 .get(&module_uuid)
                 .ok_or_else(|| WasmError::from(WasmManagerError::ModuleNotFound(module_uuid)))?;
 
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_else(|_| std::time::Duration::from_nanos(0))
+                .as_nanos() as u64;
+            module
+                .module_meta
+                .last_accessed_at
+                .store(now, Ordering::Relaxed);
+            module
+                .module_meta
+                .access_count
+                .fetch_add(1, Ordering::Relaxed);
+
             // Clone the pre-loaded WASM bytes (already in memory, no file I/O)
             module.module_meta.wasm_bytes.clone()
         };
-
-        {
-            let mut modules = self
-                .modules
-                .write()
-                .map_err(|e| WasmManagerError::LockFailed(e.to_string()))?;
-            if let Some(module) = modules.get_mut(&module_uuid) {
-                // SystemTime::duration_since only fails if the system time is before UNIX_EPOCH,
-                // which should never happen in normal operation. If it does, use current time as fallback.
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_else(|_| {
-                        // Fallback to a reasonable timestamp if system time is invalid
-                        // This should never occur in practice, but provides a safe fallback
-                        std::time::Duration::from_nanos(0)
-                    })
-                    .as_nanos() as u64;
-                module.module_meta.last_accessed_at = now;
-                module.module_meta.access_count += 1;
-            }
-        }
 
         let result = self
             .runtime
