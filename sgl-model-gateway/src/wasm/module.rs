@@ -185,7 +185,7 @@ impl Clone for WasmModuleMeta {
 }
 fn serialize_atomic_u64<S>(val: &AtomicU64, s: S) -> Result<S::Ok, S::Error>
 where
-    S: serde::Serializer,
+    S: Serializer,
 {
     s.serialize_u64(val.load(Ordering::Relaxed))
 }
@@ -197,7 +197,7 @@ where
 }
 fn serialize_atomic_timestamp<S>(val: &AtomicU64, s: S) -> Result<S::Ok, S::Error>
 where
-    S: serde::Serializer,
+    S: Serializer,
 {
     serialize_timestamp(&val.load(Ordering::Relaxed), s)
 }
