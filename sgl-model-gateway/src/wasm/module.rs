@@ -166,7 +166,7 @@ pub struct WasmModuleMeta {
     pub attach_points: Vec<WasmModuleAttachPoint>,
     // Pre-loaded WASM component bytes (loaded into memory for faster execution)
     #[serde(skip)]
-    pub wasm_bytes: Vec<u8>,
+    pub wasm_bytes: Arc<Vec<u8>>,
 }
 impl Clone for WasmModuleMeta {
     fn clone(&self) -> Self {
