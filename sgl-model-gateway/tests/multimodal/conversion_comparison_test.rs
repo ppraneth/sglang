@@ -3,9 +3,9 @@ use std::time::Instant;
 use image::DynamicImage;
 use ndarray::Array3;
 // Use the crate name defined in Cargo.toml (sgl-model-gateway)
-use sgl_model_gateway::multimodal::vision::transforms::to_tensor as current_to_tensor;
+use smg::multimodal::vision::transforms::to_tensor as current_to_tensor;
 
-/// The "Legacy" manual loop implementation for comparison
+///  manual loop implementation for comparison
 fn to_tensor_legacy(image: &DynamicImage) -> Array3<f32> {
     let rgb = image.to_rgb8();
     let (w, h) = (rgb.width() as usize, rgb.height() as usize);
