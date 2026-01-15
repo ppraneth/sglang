@@ -327,30 +327,66 @@ pub fn bicubic_interpolate(
 /// # Returns
 /// Resized tensor of shape [C, target_h, target_w].
 pub fn bicubic_resize(tensor: &Array3<f32>, target_h: usize, target_w: usize) -> Array3<f32> {
-    let (c, h, w) = (tensor.shape()[0], tensor.shape()[1], tensor.shape()[2]);
-
+    let (channels, h, w) = (tensor.shape()[0], tensor.shape()[1], tensor.shape()[2]);
     if h == target_h && w == target_w {
         return tensor.clone();
     }
 
-    let mut result = Array3::<f32>::zeros((c, target_h, target_w));
-
-    // PyTorch align_corners=False coordinate mapping
     let scale_h = h as f32 / target_h as f32;
     let scale_w = w as f32 / target_w as f32;
 
-    for ch in 0..c {
-        for y in 0..target_h {
-            for x in 0..target_w {
-                // PyTorch align_corners=False: src = (dst + 0.5) * scale - 0.5
-                let src_y = (y as f32 + 0.5) * scale_h - 0.5;
-                let src_x = (x as f32 + 0.5) * scale_w - 0.5;
+    // 1. Pre-calculate vertical weights (LUT)
+    let weights_h: Vec<_> = (0..target_h)
+        .map(|y| {
+            let src_y = (y as f32 + 0.5) * scale_h - 0.5;
+            let y_int = src_y.floor() as i32;
+            let y_frac = src_y - y_int as f32;
+            let mut w_y = [0.0f32; 4];
+            let mut idx_y = [0usize; 4];
+            for dy in -1..=2 {
+                idx_y[(dy + 1) as usize] = (y_int + dy).clamp(0, h as i32 - 1) as usize;
+                w_y[(dy + 1) as usize] = cubic_weight(y_frac - dy as f32);
+            }
+            (idx_y, w_y)
+        })
+        .collect();
 
-                result[[ch, y, x]] = bicubic_interpolate(tensor, ch, src_y, src_x, h, w);
+    // 2. Pre-calculate horizontal weights (LUT)
+    let weights_w: Vec<_> = (0..target_w)
+        .map(|x| {
+            let src_x = (x as f32 + 0.5) * scale_w - 0.5;
+            let x_int = src_x.floor() as i32;
+            let x_frac = src_x - x_int as f32;
+            let mut w_x = [0.0f32; 4];
+            let mut idx_x = [0usize; 4];
+            for dx in -1..=2 {
+                idx_x[(dx + 1) as usize] = (x_int + dx).clamp(0, w as i32 - 1) as usize;
+                w_x[(dx + 1) as usize] = cubic_weight(x_frac - dx as f32);
+            }
+            (idx_x, w_x)
+        })
+        .collect();
+
+    let mut result = Array3::<f32>::zeros((channels, target_h, target_w));
+
+    // 3. Interpolate using LUT
+    for c in 0..channels {
+        for y in 0..target_h {
+            let (idx_y, w_y) = weights_h[y];
+            for x in 0..target_w {
+                let (idx_x, w_x) = weights_w[x];
+                let mut val = 0.0f32;
+                for dy in 0..4 {
+                    let wy = w_y[dy];
+                    let row = idx_y[dy];
+                    for dx in 0..4 {
+                        val += tensor[[c, row, idx_x[dx]]] * wy * w_x[dx];
+                    }
+                }
+                result[[c, y, x]] = val;
             }
         }
     }
-
     result
 }
 
