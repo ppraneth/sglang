@@ -94,7 +94,9 @@ impl AsyncMultiModalTracker {
         let mut data = MultiModalData::new();
         for (modality, tasks) in self.pending.drain() {
             let joined_results = try_join_all(tasks).await?;
-            let items: MultiModalResult<Vec<TrackedMedia>> = joined_results.into_iter().collect();
+            let items: Vec<TrackedMedia> = joined_results
+                .into_iter()
+                .collect::<MultiModalResult<_>>()?;
             data.insert(modality, items);
         }
 
@@ -168,11 +170,7 @@ impl AsyncMultiModalTracker {
                 connector.fetch_image(source, ImageFetchConfig { detail }),
             )
             .await
-            .map_err(|_| {
-                MultiModalError::MediaConnectorError(MediaConnectorError::Timeout {
-                    duration: timeout_dur,
-                })
-            })??;
+            .map_err(|_| MultiModalError::Media(MediaConnectorError::Timeout(timeout_dur)))??;
 
             Ok(TrackedMedia::Image(frame))
         });

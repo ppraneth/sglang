@@ -4,7 +4,7 @@
 //! behavior, enabling pure Rust preprocessing without Python dependencies.
 
 use image::{imageops::FilterType, DynamicImage, GenericImageView, Rgb, RgbImage};
-use ndarray::{s, Array3, Array4};
+use ndarray::{parallel::prelude::*, s, Array3, Array4};
 use rayon::prelude::*;
 use thiserror::Error;
 /// Errors that can occur during image transformations.
@@ -376,13 +376,11 @@ pub fn bicubic_resize(tensor: &Array3<f32>, target_h: usize, target_w: usize) ->
 
     // Parallelize across channels and rows
     result
-        .axis_iter_mut(ndarray::Axis(0))
-        .into_par_iter() // Parallelize channels
+        .par_axis_iter_mut(ndarray::Axis(0))
         .enumerate()
         .for_each(|(c, mut channel_view)| {
             channel_view
-                .axis_iter_mut(ndarray::Axis(0))
-                .into_par_iter() // Parallelize rows within each channel
+                .par_axis_iter_mut(ndarray::Axis(0))
                 .enumerate()
                 .for_each(|(y, mut row_view)| {
                     let (idx_y, w_y) = weights_h[y];
