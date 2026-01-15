@@ -94,9 +94,7 @@ impl AsyncMultiModalTracker {
         let mut data = MultiModalData::new();
         for (modality, tasks) in self.pending.drain() {
             let joined_results = try_join_all(tasks).await?;
-            let items: Vec<TrackedMedia> = joined_results
-                .into_iter()
-                .collect::<MultiModalResult<_>>()?;
+            let items: Vec<TrackedMedia> = joined_results.into_iter().collect::<MultiModalResult<_>>()?;
             data.insert(modality, items);
         }
 

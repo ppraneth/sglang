@@ -4,7 +4,8 @@
 //! behavior, enabling pure Rust preprocessing without Python dependencies.
 
 use image::{imageops::FilterType, DynamicImage, GenericImageView, Rgb, RgbImage};
-use ndarray::{parallel::prelude::*, s, Array3, Array4};
+use ndarray::{s, Array3, Array4, Axis, Zip};
+use ndarray_parallel::prelude::*;
 use thiserror::Error;
 /// Errors that can occur during image transformations.
 #[derive(Error, Debug)]
@@ -58,15 +59,13 @@ pub fn to_tensor(image: &DynamicImage) -> Array3<f32> {
 pub fn to_tensor_no_norm(image: &DynamicImage) -> Array3<f32> {
     let rgb = image.to_rgb8();
     let (w, h) = (rgb.width() as usize, rgb.height() as usize);
-    let mut arr = Array3::<f32>::zeros((3, h, w));
 
-    for (x, y, pixel) in rgb.enumerate_pixels() {
-        let (x, y) = (x as usize, y as usize);
-        arr[[0, y, x]] = pixel[0] as f32;
-        arr[[1, y, x]] = pixel[1] as f32;
-        arr[[2, y, x]] = pixel[2] as f32;
-    }
-    arr
+    // Vectorized conversion without manual pixel loops
+    let raw = rgb.into_raw();
+    let hwc_array = Array3::from_shape_vec((h, w, 3), raw)
+        .expect("Buffer size should match dimensions");
+
+    hwc_array.permuted_axes([2, 0, 1]).mapv(|v| v as f32)
 }
 
 /// Normalize tensor per channel: (x - mean) / std.
@@ -339,7 +338,7 @@ pub fn bicubic_resize(tensor: &Array3<f32>, target_h: usize, target_w: usize) ->
     let scale_h = h as f32 / target_h as f32;
     let scale_w = w as f32 / target_w as f32;
 
-    // 1. Pre-calculate vertical weights (LUT)
+    // Pre-calculate weights (LUT)
     let weights_h: Vec<_> = (0..target_h)
         .map(|y| {
             let src_y = (y as f32 + 0.5) * scale_h - 0.5;
@@ -355,7 +354,6 @@ pub fn bicubic_resize(tensor: &Array3<f32>, target_h: usize, target_w: usize) ->
         })
         .collect();
 
-    // 2. Pre-calculate horizontal weights (LUT)
     let weights_w: Vec<_> = (0..target_w)
         .map(|x| {
             let src_x = (x as f32 + 0.5) * scale_w - 0.5;
@@ -373,30 +371,26 @@ pub fn bicubic_resize(tensor: &Array3<f32>, target_h: usize, target_w: usize) ->
 
     let mut result = Array3::<f32>::zeros((channels, target_h, target_w));
 
-    // Parallelize across channels and rows
-    result
-        .par_axis_iter_mut(ndarray::Axis(0))
-        .enumerate()
-        .for_each(|(c, mut channel_view)| {
-            channel_view
-                .par_axis_iter_mut(ndarray::Axis(0))
-                .enumerate()
-                .for_each(|(y, mut row_view)| {
-                    let (idx_y, w_y) = weights_h[y];
-                    for x in 0..target_w {
-                        let (idx_x, w_x) = weights_w[x];
-                        let mut val = 0.0f32;
-                        for dy in 0..4 {
-                            let wy = w_y[dy];
-                            let row_idx = idx_y[dy];
-                            for dx in 0..4 {
-                                val += tensor[[c, row_idx, idx_x[dx]]] * wy * w_x[dx];
-                            }
-                        }
-                        row_view[x] = val;
+    // Fix: Use ndarray::Zip for robust parallelization.
+    // This avoids the "no method par_axis_iter_mut" trait scope issues.
+    Zip::indexed(result.axis_iter_mut(Axis(0))).par_for_each(|c, mut channel_view| {
+        for y in 0..target_h {
+            let (idx_y, w_y) = weights_h[y];
+            for x in 0..target_w {
+                let (idx_x, w_x) = weights_w[x];
+                let mut val = 0.0f32;
+                for dy in 0..4 {
+                    let wy = w_y[dy];
+                    let row_idx = idx_y[dy];
+                    for dx in 0..4 {
+                        val += tensor[[c, row_idx, idx_x[dx]]] * wy * w_x[dx];
                     }
-                });
-        });
+                }
+                channel_view[[y, x]] = val;
+            }
+        }
+    });
+
     result
 }
 
