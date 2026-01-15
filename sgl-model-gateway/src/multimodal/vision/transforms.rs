@@ -5,7 +5,7 @@
 
 use image::{imageops::FilterType, DynamicImage, GenericImageView, Rgb, RgbImage};
 use ndarray::{s, Array3, Array4, Axis, Zip};
-use ndarray_parallel::prelude::*;
+use ndarray::parallel::prelude::*;
 use thiserror::Error;
 /// Errors that can occur during image transformations.
 #[derive(Error, Debug)]
