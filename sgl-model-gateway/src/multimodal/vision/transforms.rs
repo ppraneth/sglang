@@ -5,8 +5,8 @@
 
 use image::{imageops::FilterType, DynamicImage, GenericImageView, Rgb, RgbImage};
 use ndarray::{s, Array3, Array4};
+use rayon::prelude::*;
 use thiserror::Error;
-
 /// Errors that can occur during image transformations.
 #[derive(Error, Debug)]
 pub enum TransformError {
@@ -374,24 +374,32 @@ pub fn bicubic_resize(tensor: &Array3<f32>, target_h: usize, target_w: usize) ->
 
     let mut result = Array3::<f32>::zeros((channels, target_h, target_w));
 
-    // 3. Interpolate using LUT
-    for c in 0..channels {
-        for y in 0..target_h {
-            let (idx_y, w_y) = weights_h[y];
-            for x in 0..target_w {
-                let (idx_x, w_x) = weights_w[x];
-                let mut val = 0.0f32;
-                for dy in 0..4 {
-                    let wy = w_y[dy];
-                    let row = idx_y[dy];
-                    for dx in 0..4 {
-                        val += tensor[[c, row, idx_x[dx]]] * wy * w_x[dx];
+    // Parallelize across channels and rows
+    result
+        .axis_iter_mut(ndarray::Axis(0))
+        .into_par_iter() // Parallelize channels
+        .enumerate()
+        .for_each(|(c, mut channel_view)| {
+            channel_view
+                .axis_iter_mut(ndarray::Axis(0))
+                .into_par_iter() // Parallelize rows within each channel
+                .enumerate()
+                .for_each(|(y, mut row_view)| {
+                    let (idx_y, w_y) = weights_h[y];
+                    for x in 0..target_w {
+                        let (idx_x, w_x) = weights_w[x];
+                        let mut val = 0.0f32;
+                        for dy in 0..4 {
+                            let wy = w_y[dy];
+                            let row_idx = idx_y[dy];
+                            for dx in 0..4 {
+                                val += tensor[[c, row_idx, idx_x[dx]]] * wy * w_x[dx];
+                            }
+                        }
+                        row_view[x] = val;
                     }
-                }
-                result[[c, y, x]] = val;
-            }
-        }
-    }
+                });
+        });
     result
 }
 

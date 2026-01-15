@@ -1,9 +1,10 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
+use futures::future::try_join_all;
 use tokio::task::JoinHandle;
 
 use super::{
-    error::{MultiModalError, MultiModalResult},
+    error::{MediaConnectorError, MultiModalError, MultiModalResult},
     media::{ImageFetchConfig, MediaConnector, MediaSource},
     types::{
         ChatContentPart, ConversationSegment, ImageDetail, Modality, MultiModalData,
@@ -92,11 +93,8 @@ impl AsyncMultiModalTracker {
     pub async fn finalize(mut self) -> MultiModalResult<TrackerOutput> {
         let mut data = MultiModalData::new();
         for (modality, tasks) in self.pending.drain() {
-            let mut items = Vec::with_capacity(tasks.len());
-            for task in tasks {
-                let media = task.await??;
-                items.push(media);
-            }
+            let joined_results = try_join_all(tasks).await?;
+            let items: MultiModalResult<Vec<TrackedMedia>> = joined_results.into_iter().collect();
             data.insert(modality, items);
         }
 
@@ -164,9 +162,18 @@ impl AsyncMultiModalTracker {
 
         let connector = Arc::clone(&self.media_connector);
         let handle = tokio::spawn(async move {
-            let frame = connector
-                .fetch_image(source, ImageFetchConfig { detail })
-                .await?;
+            let timeout_dur = Duration::from_secs(30);
+            let frame = tokio::time::timeout(
+                timeout_dur,
+                connector.fetch_image(source, ImageFetchConfig { detail }),
+            )
+            .await
+            .map_err(|_| {
+                MultiModalError::MediaConnectorError(MediaConnectorError::Timeout {
+                    duration: timeout_dur,
+                })
+            })??;
+
             Ok(TrackedMedia::Image(frame))
         });
 

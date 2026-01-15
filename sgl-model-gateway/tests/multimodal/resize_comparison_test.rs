@@ -1,6 +1,5 @@
 use std::time::Instant;
 
-use image::DynamicImage;
 use ndarray::Array3;
 // Use 'smg' as the crate name
 use smg::multimodal::vision::transforms::{bicubic_resize as current_resize, to_tensor};
