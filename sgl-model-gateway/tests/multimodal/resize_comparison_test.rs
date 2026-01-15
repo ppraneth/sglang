@@ -2,6 +2,7 @@ use std::time::Instant;
 
 use image::DynamicImage;
 use ndarray::Array3;
+// Use 'smg' as the crate name
 use smg::multimodal::vision::transforms::{bicubic_resize as current_resize, to_tensor};
 
 /// The "Legacy" implementation for comparison
@@ -16,11 +17,10 @@ fn bicubic_resize_legacy(tensor: &Array3<f32>, target_h: usize, target_w: usize)
             for x in 0..target_w {
                 let src_y = (y as f32 + 0.5) * scale_h - 0.5;
                 let src_x = (x as f32 + 0.5) * scale_w - 0.5;
-                // Note: In real test, this calls the original interpolate logic
-                result[[ch, y, x]] =
-                    sgl_model_gateway::multimodal::vision::transforms::bicubic_interpolate(
-                        tensor, ch, src_y, src_x, h, w,
-                    );
+                // Corrected: changed sgl_model_gateway to smg
+                result[[ch, y, x]] = smg::multimodal::vision::transforms::bicubic_interpolate(
+                    tensor, ch, src_y, src_x, h, w,
+                );
             }
         }
     }
@@ -33,7 +33,6 @@ fn test_compare_resize_implementations() {
     let img = image::open(img_path).expect("Failed to load test image");
     let tensor = to_tensor(&img);
 
-    // Target size typical for LLaVA or Qwen
     let (t_h, t_w) = (336, 336);
 
     println!("\n--- Bicubic Resize Benchmark ---");
@@ -53,7 +52,7 @@ fn test_compare_resize_implementations() {
     assert!(diff < 1e-4, "Resize values differ! Error: {}", diff);
     println!("✅ Correctness: Outputs are identical.");
 
-    // 2. Performance (Reduced iterations because resize is heavy)
+    // 2. Performance
     let iterations = 20;
 
     let start = Instant::now();

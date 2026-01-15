@@ -37,15 +37,20 @@ pub type Result<T> = std::result::Result<T, TransformError>;
 pub fn to_tensor(image: &DynamicImage) -> Array3<f32> {
     let rgb = image.to_rgb8();
     let (w, h) = (rgb.width() as usize, rgb.height() as usize);
-    let mut arr = Array3::<f32>::zeros((3, h, w));
 
-    for (x, y, pixel) in rgb.enumerate_pixels() {
-        let (x, y) = (x as usize, y as usize);
-        arr[[0, y, x]] = pixel[0] as f32 / 255.0;
-        arr[[1, y, x]] = pixel[1] as f32 / 255.0;
-        arr[[2, y, x]] = pixel[2] as f32 / 255.0;
-    }
-    arr
+    // 1. Convert the raw flat buffer into an HWC ndarray
+    // This is a zero-copy operation if the buffer is already a Vec<u8>
+    let raw = rgb.into_raw();
+    let hwc_array =
+        Array3::from_shape_vec((h, w, 3), raw).expect("Buffer size should match dimensions");
+
+    // 2. Change layout from HWC (H, W, 3) to CHW (3, H, W)
+    // .permuted_axes is a view change (O(1) time)
+    let chw_view = hwc_array.permuted_axes([2, 0, 1]);
+
+    // 3. Vectorized type conversion and normalization
+    // .mapv uses SIMD internally to divide all pixels simultaneously
+    chw_view.mapv(|v| v as f32 / 255.0)
 }
 
 /// Convert image to tensor [C, H, W] without normalization (keeps [0, 255]).
