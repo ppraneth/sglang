@@ -124,8 +124,7 @@ RadixTree::insert_and_match(const token_vec_t& _key, at::Tensor value) {
                                      {key.begin() + host_prefix_length, key.end()},
                                      value.slice(/*dim=*/0, host_prefix_length, key.size()))
                                : host_node;
-
-  walk_to_root(host_node, [&](TreeNode* n) { n->hit_count++; });
+  walk_to_root(device_node, [&](TreeNode* n) { n->hit_count++; });
 
   std::vector<at::Tensor> indices{};
   walk_to_root(device_node, [&](TreeNode* n) { indices.push_back(n->device_indices()); });

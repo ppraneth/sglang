@@ -129,6 +129,9 @@ class RadixCacheCpp(BasePrefixCache):
     def _insert_and_match(self, key: RadixKey, value: torch.Tensor):
         """
         Insert a key-value pair and simultaneously return matched structures.
+        Note: The underlying C++ Tree returns a 6-element tuple including 'ongoing_write'
+        for hierarchical cache tasks. We currently drop it from the return of
+        this wrapper (returning 5 elements) because Host Cache is not yet supported.
         """
         (
             ongoing_write,
@@ -191,6 +194,14 @@ class RadixCacheCpp(BasePrefixCache):
         """Cache request when it finishes."""
         assert req.req_pool_idx is not None
         kv_committed_len = req.pop_committed_kv_cache()
+
+        if self.disable:
+            kv_indices = self.req_to_token_pool.req_to_token[
+                req.req_pool_idx, :kv_committed_len
+            ]
+            self.token_to_kv_pool_allocator.free(kv_indices)
+            return
+
         token_ids = (req.origin_input_ids + req.output_ids)[:kv_committed_len]
         kv_indices = self.req_to_token_pool.req_to_token[
             req.req_pool_idx, :kv_committed_len
@@ -227,6 +238,9 @@ class RadixCacheCpp(BasePrefixCache):
 
     def cache_unfinished_req(self, req: Req, chunked=False):
         """Cache request when it is unfinished."""
+        if self.disable:
+            return
+
         assert req.req_pool_idx is not None
         token_ids = req.fill_ids
         prefill_len = len(token_ids)  # prefill only (maybe chunked)
