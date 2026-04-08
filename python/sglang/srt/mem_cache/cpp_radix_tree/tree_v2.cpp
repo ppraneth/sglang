@@ -119,11 +119,11 @@ RadixTree::insert_and_match(const token_vec_t& _key, at::Tensor value) {
   const auto [host_node, host_prefix_length] = m_impl->tree_walk(key);
 
   const auto device_node = host_prefix_length != key.size()
-      ? m_impl->create_device_node(
-            host_node,
-            {key.begin() + host_prefix_length, key.end()},
-            value.slice(/*dim=*/0, host_prefix_length, key.size()))
-      : host_node;
+                               ? m_impl->create_device_node(
+                                     host_node,
+                                     {key.begin() + host_prefix_length, key.end()},
+                                     value.slice(/*dim=*/0, host_prefix_length, key.size()))
+                               : host_node;
 
   walk_to_root(host_node, [&](TreeNode* n) { n->hit_count++; });
 
