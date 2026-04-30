@@ -619,6 +619,7 @@ class ModelOptMixedPrecisionConfig(ModelOptQuantConfig):
         self.quantized_layers = quantized_layers
         self.fp8_config = fp8_config
         self.nvfp4_config = nvfp4_config
+        self._quantized_layers_normalized = False
 
     @classmethod
     def override_quantization_method(cls, hf_quant_config, user_quant):
@@ -717,26 +718,53 @@ class ModelOptMixedPrecisionConfig(ModelOptQuantConfig):
         if self.quantized_layers:
             from sglang.srt.models.utils import WeightsMapper
 
-            # The hf_to_sglang_mapper uses prefix matching (e.g. "backbone." ->
-            # "model."), so it won't match keys that start with a module wrapper
-            # like "language_model.backbone.".  Build a substr-based mapper that
-            # handles both the bare prefix and any wrapped variant.
+            # First apply the standard prefix mapper (handles bare "backbone." prefix).
+            mapped = hf_to_sglang_mapper.apply_dict(self.quantized_layers)
+
+            # Some VL wrappers (e.g. nano_nemotron_vl) have no hf_to_sglang_mapper
+            # on the outer class, so apply_weight_name_mapper is never invoked and
+            # the keys still carry the full HF path (e.g. "language_model.backbone.").
+            # Also handles the case where the mapper only covers the bare prefix but
+            # the keys have a module wrapper prepended (e.g. "language_model.backbone.").
+            # Build a substr mapper that replaces ".backbone." -> ".model." to cover
+            # all such variants, then apply it to whatever survived the prefix pass.
             substr_pairs: dict[str, str] = {}
-            for old_prefix, new_prefix in hf_to_sglang_mapper.orig_to_new_prefix.items():
+            for (
+                old_prefix,
+                new_prefix,
+            ) in hf_to_sglang_mapper.orig_to_new_prefix.items():
                 if new_prefix is not None:
                     substr_pairs[f".{old_prefix}"] = f".{new_prefix}"
             if substr_pairs:
                 substr_mapper = WeightsMapper(orig_to_new_substr=substr_pairs)
+                # Apply prefix mapper first; fall back to originals if nothing matched.
                 self.quantized_layers = substr_mapper.apply_dict(
-                    hf_to_sglang_mapper.apply_dict(self.quantized_layers)
-                    or self.quantized_layers
+                    mapped or self.quantized_layers
                 )
             else:
-                self.quantized_layers = hf_to_sglang_mapper.apply_dict(
-                    self.quantized_layers
-                )
+                self.quantized_layers = mapped or self.quantized_layers
+
+    def _normalize_quantized_layers(self) -> None:
+        """Lazily remap 'backbone' -> 'model' in quantized_layers keys.
+
+        The hf_quant_config.json stores keys using the HF checkpoint layout
+        (e.g. "language_model.backbone.layers.1.mixer.experts.0.down_proj").
+        SGLang renames "backbone" -> "model" during weight loading, so the
+        FusedMoE prefix passed to get_quant_method uses "model".  When the
+        outer model class has no hf_to_sglang_mapper (e.g. nano_nemotron_vl),
+        apply_weight_name_mapper is never called and the keys remain unmapped.
+        This method fixes that by replacing ".backbone." with ".model." once.
+        """
+        if not self._quantized_layers_normalized:
+            self._quantized_layers_normalized = True
+            if any(".backbone." in k for k in self.quantized_layers):
+                self.quantized_layers = {
+                    k.replace(".backbone.", ".model."): v
+                    for k, v in self.quantized_layers.items()
+                }
 
     def _resolve_quant_algo(self, prefix: str) -> Optional[str]:
+        self._normalize_quantized_layers()
         if prefix in self.quantized_layers:
             return self.quantized_layers[prefix]["quant_algo"].upper()
 
