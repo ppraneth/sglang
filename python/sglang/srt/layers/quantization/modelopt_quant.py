@@ -771,6 +771,13 @@ class ModelOptMixedPrecisionConfig(ModelOptQuantConfig):
         if isinstance(layer, FusedMoE):
             if self.is_layer_excluded(prefix):
                 return None
+            logger.debug(
+                "[NVFP4_DEBUG] get_quant_method FusedMoE: prefix=%s resolved_quant_algo=%s "
+                "quantized_layers_sample=%s",
+                prefix,
+                quant_algo,
+                list(self.quantized_layers.keys())[:5],
+            )
             if quant_algo == "FP8":
                 return ModelOptFp8MoEMethod(self.fp8_config)
             if quant_algo == "NVFP4":
