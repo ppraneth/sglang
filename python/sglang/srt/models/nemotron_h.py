@@ -179,6 +179,17 @@ class NemotronHMoE(nn.Module):
             correction_bias=self.gate.e_score_correction_bias,
             routed_scaling_factor=1.0,
         )
+        logger.debug(
+            "[NVFP4_DEBUG] NemotronHMoELayer init: layer_idx=%s "
+            "hidden_size=%s moe_hidden_size=%s moe_intermediate_size=%s "
+            "n_routed_experts=%s mlp_hidden_act=%s",
+            layer_idx,
+            config.hidden_size,
+            self.moe_hidden_size,
+            config.moe_intermediate_size,
+            config.n_routed_experts,
+            config.mlp_hidden_act,
+        )
         self.experts = get_moe_impl_class(quant_config)(
             num_experts=config.n_routed_experts
             + get_global_server_args().ep_num_redundant_experts,
