@@ -975,6 +975,15 @@ class NemotronHForCausalLM(nn.Module):
                     if name_mapped not in params_dict:
                         continue
                     param = params_dict[name_mapped]
+                    logger.debug(
+                        "[NVFP4_DEBUG] expert loader: name=%s param_shape=%s "
+                        "loaded_shape=%s shard_id=%s expert_id=%s",
+                        name_mapped,
+                        tuple(param.data.shape),
+                        tuple(loaded_weight.shape),
+                        shard_id,
+                        expert_id,
+                    )
                     param.weight_loader(
                         param,
                         loaded_weight,

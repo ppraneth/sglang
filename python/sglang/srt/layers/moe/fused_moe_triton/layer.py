@@ -520,6 +520,22 @@ class FusedMoE(torch.nn.Module):
             # for w2 in TP, it shards the input_features, i.e., shard_dim=2
             shard_size = expert_data.shape[shard_dim]
 
+        import logging as _logging
+
+        _log = _logging.getLogger(__name__)
+        _log.debug(
+            "[NVFP4_DEBUG] _load_w2: expert_data.shape=%s loaded_weight.shape=%s "
+            "shard_dim=%s shard_size=%s tp_rank=%s "
+            "use_triton=%s use_padded=%s use_presharded=%s",
+            tuple(expert_data.shape),
+            tuple(loaded_weight.shape),
+            shard_dim,
+            shard_size,
+            tp_rank,
+            self.use_triton_kernels,
+            self.use_padded_loading,
+            self.use_presharded_weights,
+        )
         if self.use_padded_loading:
             expert_data, loaded_weight = narrow_padded_param_and_loaded_weight(
                 expert_data,
