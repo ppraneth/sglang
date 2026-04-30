@@ -194,6 +194,7 @@ class PytHooks(object):
 
         return param_info
 
+    @torch.compiler.disable
     def module_fwd_hook(self, module_obj, in_tensor, out_tensor):
         """Callback function that ends the NVTX marker
 
@@ -214,6 +215,7 @@ class PytHooks(object):
         nvtx.range_pop()
         return
 
+    @torch.compiler.disable
     def module_fwd_pre_hook(self, module_obj, in_tensor):
         """Creates an NVTX marker with the module name in it.
 
