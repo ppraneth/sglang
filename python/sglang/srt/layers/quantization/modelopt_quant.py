@@ -715,9 +715,26 @@ class ModelOptMixedPrecisionConfig(ModelOptQuantConfig):
     def apply_weight_name_mapper(self, hf_to_sglang_mapper: "WeightsMapper"):
         super().apply_weight_name_mapper(hf_to_sglang_mapper)
         if self.quantized_layers:
-            self.quantized_layers = hf_to_sglang_mapper.apply_dict(
-                self.quantized_layers
-            )
+            from sglang.srt.models.utils import WeightsMapper
+
+            # The hf_to_sglang_mapper uses prefix matching (e.g. "backbone." ->
+            # "model."), so it won't match keys that start with a module wrapper
+            # like "language_model.backbone.".  Build a substr-based mapper that
+            # handles both the bare prefix and any wrapped variant.
+            substr_pairs: dict[str, str] = {}
+            for old_prefix, new_prefix in hf_to_sglang_mapper.orig_to_new_prefix.items():
+                if new_prefix is not None:
+                    substr_pairs[f".{old_prefix}"] = f".{new_prefix}"
+            if substr_pairs:
+                substr_mapper = WeightsMapper(orig_to_new_substr=substr_pairs)
+                self.quantized_layers = substr_mapper.apply_dict(
+                    hf_to_sglang_mapper.apply_dict(self.quantized_layers)
+                    or self.quantized_layers
+                )
+            else:
+                self.quantized_layers = hf_to_sglang_mapper.apply_dict(
+                    self.quantized_layers
+                )
 
     def _resolve_quant_algo(self, prefix: str) -> Optional[str]:
         if prefix in self.quantized_layers:
