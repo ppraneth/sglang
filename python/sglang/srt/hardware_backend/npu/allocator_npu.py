@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 import torch
 
-from sglang.srt.mem_cache.allocator import (
+from sglang.srt.mem_cache.allocator.paged import (
     PagedTokenToKVPoolAllocator,
     alloc_extend_naive,
 )
